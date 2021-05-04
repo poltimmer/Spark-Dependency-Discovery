@@ -2,8 +2,8 @@ from pyspark import StorageLevel
 from pyspark.sql import SparkSession
 import pickle
 
-input_file_path = "C:\\Users\\20173995\\Desktop\\VR_20051125.txt"
-output_folder_path = "C:\\Users\\Public\\Data"
+input_file_path = ""
+output_folder_path = ""
 col_names = ["snapshot_dt", "county_id", "county_desc", "voter_reg_num", "ncid", "status_cd", "voter_status_desc",
              "reason_cd", "voter_status_reason_desc", "absent_ind", "name_prefx_cd", "last_name", "first_name",
              "midl_name", "name_sufx_cd", "house_num", "half_code", "street_dir", "street_name", "street_type_cd",
@@ -25,7 +25,7 @@ col_names_bitmap = [1] * len(col_names)  # bit map corresponding to col_names, i
 unwanted_columns = ["snapshot_dt", "county_desc", "voter_reg_num", "ncid", "voter_status_desc",
                     "voter_status_reason_desc", "absent_ind", "name_prefx_cd", "name_sufx_cd", "street_sufx_cd",
                     "unit_designator", "mail_addr1", "mail_addr2", "mail_addr3", "mail_addr4", "race_desc",
-                    "ethnic_code", "party_desc", "sex_code", "registr_dt", "precinct_abbrv", "municipality_abbrv",
+                    "ethnic_desc", "party_desc", "sex", "registr_dt", "precinct_abbrv", "municipality_abbrv",
                     "ward_abbrv", "cong_dist_abbrv", "super_court_abbrv", "judic_dist_abbrv", "NC_senate_abbrv",
                     "NC_house_abbrv", "county_commiss_abbrv", "township_abbrv", "school_dist_abbrv", "fire_dist_abbrv",
                     "water_dist_abbrv", "sewer_dist_abbrv", "sanit_dist_abbrv", "rescue_dist_abbrv", "munic_dist_abbrv",
@@ -43,7 +43,7 @@ def main():
 
     # spark init code
     spark: SparkSession = SparkSession.builder \
-        .master("local[4]") \
+        .master("local[*]") \
         .appName("SparkDB") \
         .getOrCreate()
 
@@ -59,7 +59,7 @@ def main():
 
     # preprocess on the rdd without header
     header = clean_rdd.first()
-    desired_columns = col_names_bitmap # preprocess(clean_rdd.filter(lambda row: row != header))
+    desired_columns = preprocess(clean_rdd.filter(lambda row: row != header))
 
     # Check and correct whether all attributes in the unwanted_columns array will be removed
     for attr in unwanted_columns:
@@ -76,7 +76,6 @@ def main():
         return result
 
     output_rdd = clean_rdd.map(lambda row: slice_rdd(row))
-
     output_rdd.coalesce(1).saveAsTextFile(output_folder_path)
 
     spark.stop()
@@ -137,8 +136,9 @@ def preprocess(file):
 
     skip_one = False  # initially don't skip any iteration
 
-    for i in reversed(range(0, len(col_names))):
+    for i in range(72, len(col_names)):
         name = col_names[i]  # enumerate is better, but janky python doesn't work well with skipping over enumerations.
+
         # if skip_one is true, skip the current iteration
         if skip_one:
             skip_one = False  # Reset boolean
@@ -162,7 +162,7 @@ def preprocess(file):
 
         null_values = null_check(attr_rdd)
         results.update({name: {'null_values': null_values}})
-        print("Attribute %s contains %d unique value(s)" % (name, unique))
+        print("Attribute %s contains %d null value(s)" % (name, null_values))
 
         if i != len(col_names) - 1:
             attr_neighbour_rdd = file.map(lambda x: x.split("\t")[i + 1])
