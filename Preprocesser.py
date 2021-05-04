@@ -2,8 +2,8 @@ from pyspark import StorageLevel
 from pyspark.sql import SparkSession
 import pickle
 
-input_file_path = ""
-output_folder_path = ""
+input_file_path = "C:\\Users\\20173995\\Desktop\\VR_20051125.txt"
+output_folder_path = "C:\\Users\\Public\\Data"
 col_names = ["snapshot_dt", "county_id", "county_desc", "voter_reg_num", "ncid", "status_cd", "voter_status_desc",
              "reason_cd", "voter_status_reason_desc", "absent_ind", "name_prefx_cd", "last_name", "first_name",
              "midl_name", "name_sufx_cd", "house_num", "half_code", "street_dir", "street_name", "street_type_cd",
@@ -59,7 +59,7 @@ def main():
 
     # preprocess on the rdd without header
     header = clean_rdd.first()
-    desired_columns = preprocess(clean_rdd.filter(lambda row: row != header))
+    desired_columns = col_names_bitmap # preprocess(clean_rdd.filter(lambda row: row != header))
 
     # Check and correct whether all attributes in the unwanted_columns array will be removed
     for attr in unwanted_columns:
@@ -118,12 +118,15 @@ def one_to_one_mapping_check(file, file_neighbour, file_combined):
     left_sorted = sorted(left_word_count, key=lambda x: x[1])
     right_sorted = sorted(right_word_count, key=lambda x: x[1])
     attribute_mapping = {left[0]: right[0] for left, right in zip(left_sorted, right_sorted)}
-    incorrect_mapping_count = file_combined.map(
-        lambda row: (row, 1) if row[1] == attribute_mapping.get(row[0]) else (row, 0)) \
-        .filter(lambda row: row[1] == 0) \
-        .count()
 
-    return incorrect_mapping_count == 0
+    if all(attribute_mapping):
+        incorrect_mapping_count = file_combined.map(
+            lambda row: (row, 1) if row[1] == attribute_mapping.get(row[0]) else (row, 0)) \
+            .filter(lambda row: row[1] == 0) \
+            .count()
+        return incorrect_mapping_count == 0
+    else:
+        return False
 
 
 def preprocess(file):
