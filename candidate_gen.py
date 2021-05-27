@@ -5,7 +5,7 @@ import pickle
 import time
 
 TAU = 0.98
-FILE_PATH = "/home/mcs001/shared_data/mcs-2amd15/mcs-2amd15-15/VR_20051125_Post"
+FILE_PATH = "/group/mcs-2amd15-15/VR_20051125_Post"  # <-- file path when using hpc
 DELTA = 2  # can be done
 
 
