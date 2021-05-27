@@ -1,6 +1,6 @@
 from pyspark.sql import SparkSession
 
-path = "C:\\Users\\Public\\VR_20051125_Post"
+path = "/home/tommie/Downloads/VR_20051125_Post"
 columns = ["county_id", "status_cd", "reason_cd", "last_name", "first_name", "midl_name", "house_num", "half_code",
            "street_dir", "street_name", "street_type_cd", "unit_num", "res_city_desc", "state_cd", "zip_code",
            "mail_city", "mail_state", "mail_zipcode", "area_cd", "phone_num", "race_code", "ethnic_code", "party_cd",
@@ -14,6 +14,8 @@ sample_input = [
     (("age"), "age_group")
 ]
 
+DELTA = 2
+
 
 def main():
     spark: SparkSession = SparkSession.builder \
@@ -22,10 +24,11 @@ def main():
         .getOrCreate()
 
     rdd = spark.sparkContext.textFile(path)
-    #header = rdd.first()
-    #rdd = rdd.filter(lambda row: row != header)
-
-    soft_fd_result = soft_fd(rdd, sample_input)
+    header = rdd.first()
+    rdd = rdd.filter(lambda row: row != header)
+    
+    soft_fd_result = soft_fd(rdd)
+    delta_fd_result = delta_fd(rdd, DELTA) #soft_fd(rdd, sample_input)
 
     print(soft_fd_result)
     return soft_fd_result
@@ -56,7 +59,7 @@ def map_tuples_to_combined_rdd(row, tuples):
     return new_rows
 
 
-def soft_fd(rdd, tup):
+def soft_fd(rdd):
     """
     # geen fd
     ("a_1, b_1") ("a_2, b_2") ("a_2, b_1")
@@ -111,12 +114,55 @@ def soft_fd(rdd, tup):
     return P_min
 
 
-def delta_fd(rdd, tup):
-    pass
-    # inner_join = rdd.join(rdd)  #.map(lambda row: (row[0], row[1]))
-    # max_distance = inner_join.map(lambda row[])  #edit_distance.SequenceMatcher(a="test", b="tesd").distance()
-    # return None
+def delta_fd(rdd, DELTA):
+    # same step as the first step from fd's:     
+    # compute the number of occurrences of unique a, b combinations per input tuple
+    a_b_combi_counts = rdd.flatMap(lambda row: map_tuples_to_combined_rdd(row, sample_input)) \
+        .reduceByKey(lambda a, b: a + b)
 
+    # Here, we go from   ("((age_group), age);41 TO 64;62", //count (e.g. 1)//),  to "("((age_group), age);41 TO 64","62"), enabling 'step 2A' in report
+    a_r_pairs = a_b_combi_counts \
+        .map(lambda pair: (pair[0].split(";")[0] + ";" + pair[0].split(";")[1], pair[0].split(";")[2]))  # remove the count leaving only unique values
+    #output : "("((age_group), age);41 TO 64", "69")
+
+    inner_join = a_r_pairs.join(a_r_pairs)  # computing (S_A, (a_k, a_k)), example ('1;7', ('17 AND BELOW', '17 AND BELOW'))
+
+
+    #https://stackoverflow.com/questions/59686989/levenshtein-distance-with-bound-limit
+    def levenshtein(s1, s2, maximum): 
+        if len(s1) > len(s2):
+            s1, s2 = s2, s1
+
+        distances = range(len(s1) + 1)
+        for i2, c2 in enumerate(s2):
+            distances_ = [i2+1]
+            for i1, c1 in enumerate(s1):
+                if c1 == c2:
+                    distances_.append(distances[i1])
+                else:
+                    distances_.append(1 + min((distances[i1], distances[i1 + 1], distances_[-1])))
+            if all((x >= maximum for x in distances_)):
+                return maximum #False #TODO Define properly
+            distances = distances_
+        return distances[-1]
+
+    def findDist(row, DELTA):
+        key = row[0].split(';')[0]  # reduce key to only contain candidate id ((age_group), age);41 TO 64; -> ((age_group), age)
+        compare_left, compare_right = row[1]
+        dist = levenshtein(compare_left, compare_right, DELTA + 1)
+        return (key, dist) 
+    
+    distance_mapping = inner_join.map(lambda row: findDist(row, DELTA)) \
+        .reduceByKey(lambda row1_met_dezelfde_candidate, row2_met_dezelfde_candidate: \
+            row1_met_dezelfde_candidate if row1_met_dezelfde_candidate \
+             > row2_met_dezelfde_candidate else row2_met_dezelfde_candidate) \
+        .collect()
+
+    return distance_mapping
+    
 
 if __name__ == '__main__':
     main()
+
+
+    ("((age_group), age);41 TO 64;((age), age_group);41 TO 64", "65")
