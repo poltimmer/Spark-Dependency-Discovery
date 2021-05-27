@@ -1,60 +1,65 @@
-#%%
+import random
+from DependencyFinder import setup_header, soft_fd
 import itertools
-cols = range(45)
-#cols = ['A', 'B', 'C', 'D', 'E']
-min_fd = {}
-for col in cols:
-    min_fd[col] = []
-# min_fd['A'] = [(('B'), 'A')]
-# min_fd['B'] = [(('A', 'C'), 'B')]
-# min_fd[1] = [((2, 3), 1), ((5,), 1), ((30, 4, 29), 1)]
-
-# %%
-min_soft_fd = {}
-for col in cols:
-    min_soft_fd[col] = []
-
-# candidates = {}
+import pickle
 
 TAU = 0.98
-#%%
+FILE_PATH = "/home/tommie/Downloads/VR_20051125_Post"
+DELTA = 2 #can be done
 
-for depth in range(1, 4):
-    perms = {}
-    # Create permutations for current layer
-    for col in cols:
-        perms[col] = [(left, col) for left in itertools.combinations([c for c in cols if c != col], depth)]
-    candidates = []
-    for key, partition in perms.items():
-        for candidate in partition:
-                   
-            if all(map(lambda x: not set(x).issubset(set(candidate[0])), map(lambda fd: fd[0], min_fd[key]))):
-                candidates.append(depth) # candidate
+def main():
+    header, input_rdd = setup_header(FILE_PATH)
+    columns = list(header.split('\t'))#[:2] #TODO remove [:5]
+ 
+    print(columns)
+    min_fd = {}
+    for col in columns:
+        min_fd[col] = []
 
-    # TODO: ask spark for FD's
-    p_values_map = spark_func(depth) # [((('A',), 'B'), 0.97)]
+    min_soft_fd = {}
+    for col in columns:
+        min_soft_fd[col] = []
 
-    # Build min_fd and min_soft_fd lists
-    for (lhs, rhs), p_val in p_values_map:
-        if p_val == 1: # case 1: hard functional dependency
-            min_fd[rhs].append((lhs, rhs))
-        elif p_val >= TAU:  # case 2: soft functional dependency
-            if all(map(lambda x: not set(x).issubset(set(lhs)), map(lambda fd: fd[0], min_soft_fd[key]))):
-                min_soft_fd[rhs].append((lhs, rhs))
-print(min_fd)
-print(min_soft_fd)
-# %% test driven development (TDD) testkees
-import random
+    for depth in range(1, 4):
+        # TODO: add a check and to break if there are no candidates 
+        perms = {}
+        # Create permutations for current layer
+        for col in columns:
+            perms[col] = [(left, col) for left in itertools.combinations([c for c in columns if c != col], depth)]
+        candidates = []
+        for key, partition in perms.items():
+            for candidate in partition:
+                if all(map(lambda x: not set(x).issubset(set(candidate[0])), map(lambda fd: fd[0], min_fd[key]))):
+                    candidates.append(candidate)
 
-def spark_func(depth):
-    if depth == 1:
-        return [(((5,), 1), 0.99)]
-    elif depth == 2:
-        return [(((2, 3), 1), 1)]
-    elif depth == 3:
-        return [(((30, 4, 29), 1), 0.97)]
-    else:
-        print(depth)
-    # return [(((2, 3), 1), 1), (((5,), 1), 0.99), (((30, 4, 29), 1), 0.97)]
+        print('checking p values for {} candidates'.format(len(candidates)))
+        p_values_map = soft_fd(candidates, columns, input_rdd) # [((('A'), 'B'), 0.97)]
+        print('p values map for iter {}: {}'.format(depth, p_values_map))
 
-        
+        # Build min_fd and min_soft_fd lists
+        for (lhs, rhs), p_val in p_values_map:
+            if p_val == 1: # case 1: hard functional dependency
+                min_fd[rhs].append((lhs, rhs))
+            elif p_val >= TAU:  # case 2: soft functional dependency
+                if all(map(lambda x: not set(x).issubset(set(lhs)), map(lambda fd: fd[0], min_soft_fd[key]))):
+                    min_soft_fd[rhs].append((lhs, rhs))
+
+        # print(min_fd)
+        # print(min_soft_fd)
+
+if __name__ == '__main__':
+    main()
+
+# MAY BE USEFUL
+# TAU = 0.98
+# # %%
+# def spark_func(depth):
+#     if depth == 1:
+#         return [(((5,), 1), 0.99)]
+#     elif depth == 2:
+#         return [(((2, 3), 1), 1)]
+#     elif depth == 3:
+#         return [(((30, 4, 29), 1), 0.97)]
+#     else:
+#         print(depth)
+#     # return [(((2, 3), 1), 1), (((5,), 1), 0.99), (((30, 4, 29), 1), 0.97)]

@@ -1,44 +1,18 @@
 from pyspark.sql import SparkSession
 
-path = "/home/tommie/Downloads/VR_20051125_Post"
-columns = ["county_id", "status_cd", "reason_cd", "last_name", "first_name", "middle_name", "house_num", "half_code",
-           "street_dir", "street_name", "street_type_cd", "unit_num", "res_city_desc", "state_cd", "zip_code",
-           "mail_city", "mail_state", "mail_zipcode", "area_cd", "phone_num", "race_code", "ethnic_code", "party_cd",
-           "sex_code", "age", "birth_place", "precinct_desc", "municipality_desc", "ward_desc", "cong_dist_desc",
-           "super_court_desc", "judic_dist_desc", "NC_senate_desc", "NC_house_desc", "county_commiss_desc",
-           "township_desc", "school_dist_desc", "fire_dist_desc", "water_dist_desc", "sewer_dist_desc",
-           "sanit_dist_desc", "rescue_dist_desc", "munic_dist_desc", "dist_1_desc", "age_group"]
-
-sample_input = [
-    (("zip_code", "house_num"), "street_name"), 
-    (("reason_cd"), "status_cd"), (("race_code"), "ethnic_code"), 
-    (("zip_code", "house_num", "unit_num"), "last_name"), 
-    (("first_name"), "sex_code"), (("street_name"), "street_type_cd"),
-    (("status_cd"), "reason_cd"),
-    (("zip_code", "house_num", "unit_num"), "last_name"),
-    (("first_name"), "sex_code"),
-    (("street_name"), "street_type_cd"),
-    (("age_group"), "age"), (("age"), "age_group")
-]
-
-def main():
+def setup_header(file_path):
     spark: SparkSession = SparkSession.builder \
         .master("local[*]") \
         .appName("SparkDB") \
         .getOrCreate()
 
-    rdd = spark.sparkContext.textFile(path)
-    header = rdd.first()
-    rdd = rdd.filter(lambda row: row != header)
-    
-    soft_fd_result = soft_fd(rdd)
-    delta_fd_result = delta_fd(rdd, DELTA) #soft_fd(rdd, sample_input)
-
-    print(soft_fd_result)
-    return soft_fd_result
+    input_rdd = spark.sparkContext.textFile(file_path)
+    header = input_rdd.first()
+    input_rdd = input_rdd.filter(lambda row: row != header)
+    return header, input_rdd
 
 
-def map_tuples_to_combined_rdd(row, tuples):
+def map_tuples_to_combined_rdd(row, tuples, header):
     new_rows = []
     for i, tup in enumerate(tuples):
         A = tup[0]
@@ -47,14 +21,14 @@ def map_tuples_to_combined_rdd(row, tuples):
 
         # Get indices for desired columns
         if type(A) is str:
-            idx = [columns.index(A)]
+            idx = [header.index(A)]
         else:
-            idx = [columns.index(col) for col in A]
+            idx = [header.index(col) for col in A]
 
         row_split = row.split("\t")
         for id in idx:
             key += row_split[id]
-        key = key + ";" + row_split[columns.index(B)]
+        key = key + ";" + row_split[header.index(B)]
 
         # new row of format ("tuple;A;B", 1),
         # for example ("((age_group), age);41 TO 64;62", 1) or ("((age_group, county_id), age);41 TO 6418;62", 1)
@@ -63,29 +37,9 @@ def map_tuples_to_combined_rdd(row, tuples):
     return new_rows
 
 
-def soft_fd(rdd):
-    """
-    # geen fd
-    ("a_1, b_1") ("a_2, b_2") ("a_2, b_1")
-
-    ("a_1;b_1", 1) ("a_2; b_2", 1) ("a_1;b_2", 1)
-    ("a_1", 2), ("a_2", 1)  # (a_i, N)
-    ("a_i" m/N) : ("a_1", 1/2), ("a_2", 1/1) --> 0.95
-
-    m = 1 # maximum van a,b combinatie counts
-
-    # wel fd
-    ("a_1, b_1") ("a_2, b_2") ("a_2, b_2")
-
-    ("a_1;b_1", 1) ("a_2; b_2", 2)
-    ("a_1", 1), ("a_2", 2)  # (a_i, N)
-    ("a_i" m/N) : ("a_1", 2/1), ("a_2", 2/2) --> 1/1
-
-    m = 2 # maximum van a,b combinatie counts
-    """
-
+def soft_fd(candidates, header, input_rdd):
     # compute the number of occurrences of unique a, b combinations per input tuple
-    a_b_combi_counts = rdd.flatMap(lambda row: map_tuples_to_combined_rdd(row, sample_input)) \
+    a_b_combi_counts = input_rdd.flatMap(lambda row: map_tuples_to_combined_rdd(row, candidates, header)) \
         .reduceByKey(lambda a, b: a + b)
 
     # remove ;A;B from the key, so only the input tuple remains and retrieving the maximum count per tuple
@@ -115,13 +69,13 @@ def soft_fd(rdd):
         lambda a_i_fraction, a_j_fraction: a_i_fraction if a_i_fraction < a_j_fraction else a_j_fraction
     ).collect()
 
-    return P_min
+    return [(candidates[idx], p) for idx, p in P_min]
 
 
-def delta_fd(rdd, DELTA):
+def delta_fd(candidates, delta, header, input_rdd):
     # same step as the first step from fd's:     
     # compute the number of occurrences of unique a, b combinations per input tuple
-    a_b_combi_counts = rdd.flatMap(lambda row: map_tuples_to_combined_rdd(row, sample_input)) \
+    a_b_combi_counts = input_rdd.flatMap(lambda row: map_tuples_to_combined_rdd(row, candidates, header)) \
         .reduceByKey(lambda a, b: a + b)
 
     # Here, we go from   ("((age_group), age);41 TO 64;62", //count (e.g. 1)//),  to "("((age_group), age);41 TO 64","62"), enabling 'step 2A' in report
@@ -130,7 +84,6 @@ def delta_fd(rdd, DELTA):
     #output : "("((age_group), age);41 TO 64", "69")
 
     inner_join = a_r_pairs.join(a_r_pairs)  # computing (S_A, (a_k, a_k)), example ('1;7', ('17 AND BELOW', '17 AND BELOW'))
-
 
     #https://stackoverflow.com/questions/59686989/levenshtein-distance-with-bound-limit
     def levenshtein(s1, s2, maximum): 
@@ -150,23 +103,34 @@ def delta_fd(rdd, DELTA):
             distances = distances_
         return distances[-1]
 
-    def findDist(row, DELTA):
+    def findDist(row, delta):
         key = row[0].split(';')[0]  # reduce key to only contain candidate id ((age_group), age);41 TO 64; -> ((age_group), age)
         compare_left, compare_right = row[1]
-        dist = levenshtein(compare_left, compare_right, DELTA + 1)
-        return (key, dist) 
-    
-    distance_mapping = inner_join.map(lambda row: findDist(row, DELTA)) \
-        .reduceByKey(lambda row1_met_dezelfde_candidate, row2_met_dezelfde_candidate: \
-            row1_met_dezelfde_candidate if row1_met_dezelfde_candidate \
-             > row2_met_dezelfde_candidate else row2_met_dezelfde_candidate) \
+        dist = levenshtein(compare_left, compare_right, delta + 1)
+        return (key, dist)
+        
+    distance_mapping = inner_join.map(lambda row: findDist(row, delta)) \
+        .reduceByKey(lambda row1_dist, row2_dist: row1_dist if row1_dist > row2_dist else row2_dist) \
         .collect()
 
-    return distance_mapping
-    
+    return [(candidates[int(idx)], int(dist)) for idx, dist in distance_mapping]
 
-if __name__ == '__main__':
-    main()
+# columns = ["county_id", "status_cd", "reason_cd", "last_name", "first_name", "middle_name", "house_num", "half_code",
+#            "street_dir", "street_name", "street_type_cd", "unit_num", "res_city_desc", "state_cd", "zip_code",
+#            "mail_city", "mail_state", "mail_zipcode", "area_cd", "phone_num", "race_code", "ethnic_code", "party_cd",
+#            "sex_code", "age", "birth_place", "precinct_desc", "municipality_desc", "ward_desc", "cong_dist_desc",
+#            "super_court_desc", "judic_dist_desc", "NC_senate_desc", "NC_house_desc", "county_commiss_desc",
+#            "township_desc", "school_dist_desc", "fire_dist_desc", "water_dist_desc", "sewer_dist_desc",
+#            "sanit_dist_desc", "rescue_dist_desc", "munic_dist_desc", "dist_1_desc", "age_group"]
 
-
-    ("((age_group), age);41 TO 64;((age), age_group);41 TO 64", "65")
+# sample_input = [
+#     (("zip_code", "house_num"), "street_name"), 
+#     (("reason_cd"), "status_cd"), (("race_code"), "ethnic_code"), 
+#     (("zip_code", "house_num", "unit_num"), "last_name"), 
+#     (("first_name"), "sex_code"), (("street_name"), "street_type_cd"),
+#     (("status_cd"), "reason_cd"),
+#     (("zip_code", "house_num", "unit_num"), "last_name"),
+#     (("first_name"), "sex_code"),
+#     (("street_name"), "street_type_cd"),
+#     (("age_group"), "age"), (("age"), "age_group")
+# ]
