@@ -1,6 +1,7 @@
 from pyspark.sql import SparkSession
 
-def setup_header(file_path):
+
+def setup_header(file_path, nr_of_rows=None):
     spark: SparkSession = SparkSession.builder \
         .master("local[*]") \
         .appName("SparkDB") \
@@ -9,6 +10,10 @@ def setup_header(file_path):
     input_rdd = spark.sparkContext.textFile(file_path)
     header = input_rdd.first()
     input_rdd = input_rdd.filter(lambda row: row != header)
+
+    if nr_of_rows is not None:
+        input_rdd = input_rdd.map(lambda x: (x, )).toDF().limit(int(nr_of_rows)).rdd.map(list)
+
     return header, input_rdd
 
 
@@ -43,33 +48,26 @@ def soft_fd(candidates, header, input_rdd):
         .reduceByKey(lambda a, b: a + b)
 
     # remove ;A;B from the key, so only the input tuple remains and retrieving the maximum count per tuple
-    maximum_of_a_b_combination_counts = dict(
-        a_b_combi_counts.map(lambda pair: (int(pair[0].split(";")[0]), pair[1])) \
-            .reduceByKey(lambda count_1, count_2: count_1 if count_1 > count_2 else count_2) \
-            .collect()
-    )
+    N_count_per_A = a_b_combi_counts \
+            .map(lambda pair: (pair[0].split(";")[0] + ";" + pair[0].split(";")[1], pair[1])) \
+            .reduceByKey(lambda N_1, N_2: N_1 + N_2) \
+            .map(lambda pair: (pair[0].split(";")[0], pair[1]))  # Remove A from the key, such that join can be performed
 
-    # Count the number of unique values in A per input tuple
-    unique_a_counts = a_b_combi_counts.map(
-        lambda a_b_combi_count: (a_b_combi_count[0].split(";")[0] + ";" + a_b_combi_count[0].split(";")[1], a_b_combi_count[1])  # remove the B
-    ).reduceByKey(lambda count_a_i_row1, count_a_i_row2: count_a_i_row1 + count_a_i_row2)
+    max_m_per_candidate = a_b_combi_counts \
+            .map(lambda pair: (pair[0].split(";")[0], pair[1])) \
+            .reduceByKey(lambda m_1, m_2: m_1 if m_1 > m_2 else m_2)
 
-    def compute_P(pair):
-        idx = int(pair[0].split(";")[0])
-        value = pair[1]
-        m = maximum_of_a_b_combination_counts.get(idx)
-        P = m / value
-        return (idx, P)
+    joined_m_N = max_m_per_candidate.join(N_count_per_A)
 
     # compute the fraction (P) per A per input tuple
-    fraction_per_a = unique_a_counts.map(lambda a_i_count: compute_P(a_i_count))
+    fraction_per_a = joined_m_N.map(lambda row: (int(row[0]), row[1][0] / row[1][1]))
 
     # Reduce tuple id to obtain the minimum P per tuple.
     P_min = fraction_per_a.reduceByKey(
         lambda a_i_fraction, a_j_fraction: a_i_fraction if a_i_fraction < a_j_fraction else a_j_fraction
-    ).collect()
+    )
 
-    return [(candidates[idx], p) for idx, p in P_min]
+    return [(candidates[idx], p) for idx, p in P_min.collect()]
 
 
 def delta_fd(candidates, delta, header, input_rdd):
