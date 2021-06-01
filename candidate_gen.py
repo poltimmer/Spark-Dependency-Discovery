@@ -33,7 +33,9 @@ def main(nr_of_columns, nr_of_rows=None, tau=None, delta=None):
 
             # print('>> checking p values for {} candidates ||'.format(len(candidates)))
             # start_time = time.time()
-            p_values_map = soft_fd(candidates, columns, input_rdd)  # [((('A'), 'B'), 0.97)]
+
+            sample_fraction = 0.01  # TODO: 1% example fraction, replace by your own
+            p_values_map = soft_fd(candidates, columns, input_rdd, sample_fraction)  # [((('A'), 'B'), 0.97)]
             # print(">> Runtime: {}".format(time.time() - start_time))
             # print('>> p values map for iter {}: {} ||'.format(depth, p_values_map))
 
@@ -64,7 +66,8 @@ def main(nr_of_columns, nr_of_rows=None, tau=None, delta=None):
                            and all(map(lambda x: not set(x).issubset(set(candidate[0])), map(lambda d_fd: d_fd[0], min_delta_fd[key]))):
                         candidates.append(candidate)
 
-            distance_values_map = delta_fd(candidates, delta, columns, input_rdd)  # [((('A'), 'B'), 2)]
+            sample_fraction = 0.01  # TODO: 1% example fraction, replace by your own
+            distance_values_map = delta_fd(candidates, delta, columns, input_rdd, sample_fraction)  # [((('A'), 'B'), 2)]
 
             # Build min_fd and min_soft_fd lists
             for (lhs, rhs), dist in distance_values_map:

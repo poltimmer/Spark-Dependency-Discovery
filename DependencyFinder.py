@@ -1,5 +1,8 @@
 from pyspark.sql import SparkSession
 
+# Seed used for sampling
+SEED = 420
+
 
 def setup_header(file_path, nr_of_rows=None):
     spark: SparkSession = SparkSession.builder \
@@ -42,7 +45,10 @@ def map_tuples_to_combined_rdd(row, tuples, header):
     return new_rows
 
 
-def soft_fd(candidates, header, input_rdd):
+def soft_fd(candidates, header, input_rdd, sample=None):
+    if sample is not None:
+        input_rdd = input_rdd.sample(withReplacement=False, fraction=sample, seed=SEED)
+
     # compute the number of occurrences of unique a, b combinations per input tuple
     a_b_combi_counts = input_rdd.flatMap(lambda row: map_tuples_to_combined_rdd(row, candidates, header)) \
         .reduceByKey(lambda a, b: a + b)
@@ -70,7 +76,10 @@ def soft_fd(candidates, header, input_rdd):
     return [(candidates[idx], p) for idx, p in P_min.collect()]
 
 
-def delta_fd(candidates, delta, header, input_rdd):
+def delta_fd(candidates, delta, header, input_rdd, sample):
+    if sample is not None:
+        input_rdd = input_rdd.sample(withReplacement=False, fraction=sample, seed=SEED)
+
     # same step as the first step from fd's:     
     # compute the number of occurrences of unique a, b combinations per input tuple
     a_b_combi_counts = input_rdd.flatMap(lambda row: map_tuples_to_combined_rdd(row, candidates, header)) \
