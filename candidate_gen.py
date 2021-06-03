@@ -24,25 +24,32 @@ def main(nr_of_columns, nr_of_rows=None, tau=None, delta=None):
             perms = {}
             # Create permutations for current layer
             for col in columns:
-                perms[col] = [(left, col) for left in itertools.combinations([c for c in columns if c != col], depth)]
+                perms[col] = [(left, col) for left in itertools.combinations(
+                    [c for c in columns if c != col], depth)]
             candidates = []
             for key, partition in perms.items():
                 for candidate in partition:
-                    if all(map(lambda x: not set(x).issubset(set(candidate[0])), map(lambda fd: fd[0], min_fd[key]))):
+                    if all(map(lambda x: not set(x).issubset(
+                            set(candidate[0])), map(lambda fd: fd[0], min_fd[key]))):
                         candidates.append(candidate)
 
             # print('>> checking p values for {} candidates ||'.format(len(candidates)))
             # start_time = time.time()
 
             next_gen_candidates = list(candidates)
-            
+
             # iterative sampling
             for factor in [2, 5, 10, 25]:
-                frac = factor*2*(1-tau)
+                frac = factor * 2 * (1 - tau)
                 if frac >= 1:
-                    warn(f"[warning] - Sampling fraction {frac} below minimum threshold given tau ({tau}), skipping fraction")
+                    warn(
+                        f"[warning] - Sampling fraction {frac} below minimum threshold given tau ({tau}), skipping fraction")
                     continue
-                distance_values_map = soft_fd(next_gen_candidates, delta, columns, input_rdd, frac)  # [((('A'), 'B'), 2)]
+                p_values_map = soft_fd(
+                    next_gen_candidates,
+                    columns,
+                    input_rdd,
+                    frac)  # [((('A'), 'B'), 2)]
                 next_gen_candidates = []
                 for (lhs, rhs), p_val in p_values_map:
                     # p-val is 0.9
@@ -53,16 +60,18 @@ def main(nr_of_columns, nr_of_rows=None, tau=None, delta=None):
 
                     # 1
 
-
                     # tau = 0.99 (klopt de dependency in 99% van de data?)
                     # 1-tau = 0.01 (in maximimaal 1% van de data mag het niet kloppen)
                     # frac =  0.1 (we samplen 10% van de data)
                     # p_val >= 1 - ((1-tau) * (fraction)) (als dit waar is, dan kunnen we hem niet uitsluiten)
-                    # 10% 1% -> 
-                    if p_val >= 1 - ((1-tau) * (frac)):
+                    # 10% 1% ->
+                    if p_val >= 1 - ((1 - tau) * (frac)):
                         next_gen_candidates.append((lhs, rhs))
 
-            p_values_map = soft_fd(next_gen_candidates, input_rdd)  # [((('A'), 'B'), 0.97)]
+            p_values_map = soft_fd(
+                next_gen_candidates,
+                columns,
+                input_rdd)  # [((('A'), 'B'), 0.97)]
             # print(">> Runtime: {}".format(time.time() - start_time))
             # print('>> p values map for iter {}: {} ||'.format(depth, p_values_map))
 
@@ -71,7 +80,8 @@ def main(nr_of_columns, nr_of_rows=None, tau=None, delta=None):
                 if p_val == 1:  # case 1: hard functional dependency
                     min_fd[rhs].append((lhs, rhs))
                 elif p_val >= tau:  # case 2: soft functional dependency
-                    if all(map(lambda x: not set(x).issubset(set(lhs)), map(lambda fd: fd[0], min_fd[key]))):
+                    if all(map(lambda x: not set(x).issubset(set(lhs)),
+                           map(lambda fd: fd[0], min_fd[key]))):
                         min_soft_fd[rhs].append((lhs, rhs))
 
         print(">> Soft FD runtime: {} ||".format(time.time() - initial_time))
@@ -85,22 +95,29 @@ def main(nr_of_columns, nr_of_rows=None, tau=None, delta=None):
             perms = {}
             # Create permutations for current layer
             for col in columns:
-                perms[col] = [(left, col) for left in itertools.combinations([c for c in columns if c != col], depth)]
+                perms[col] = [(left, col) for left in itertools.combinations(
+                    [c for c in columns if c != col], depth)]
             candidates = []
             for key, partition in perms.items():
                 for candidate in partition:
                     if all(map(lambda x: not set(x).issubset(set(candidate[0])), map(lambda fd: fd[0], min_fd[key]))) \
-                           and all(map(lambda x: not set(x).issubset(set(candidate[0])), map(lambda d_fd: d_fd[0], min_delta_fd[key]))):
+                            and all(map(lambda x: not set(x).issubset(set(candidate[0])), map(lambda d_fd: d_fd[0], min_delta_fd[key]))):
                         candidates.append(candidate)
 
             next_gen_candidates = list(candidates)
-            for frac in [0.001, 0.01, 0.05, 0.10]:
-                distance_values_map = delta_fd(next_gen_candidates, delta, columns, input_rdd, frac)  # [((('A'), 'B'), 2)]
+            for frac in [0.0001, 0.001, 0.01, 0.05, 0.10]:
+                distance_values_map = delta_fd(
+                    next_gen_candidates,
+                    delta,
+                    columns,
+                    input_rdd,
+                    frac)  # [((('A'), 'B'), 2)]
                 next_gen_candidates = []
+                # print(f"Frac: {frac}, next_gen_candidates: {next_gen_candidates}")
                 for (lhs, rhs), dist in distance_values_map:
                     if dist <= delta:
                         next_gen_candidates.append((lhs, rhs))
-
+                print(f"Frac: {frac}, # next_gen_candidates: {len(next_gen_candidates)}")
             delta_fd(next_gen_candidates, delta, columns, input_rdd)
             # Build min_fd and min_soft_fd lists
             for (lhs, rhs), dist in distance_values_map:
@@ -112,9 +129,9 @@ def main(nr_of_columns, nr_of_rows=None, tau=None, delta=None):
 
 
 if __name__ == '__main__':
-    default_tau = 0.995
+    default_tau = 0.999
     default_delta = 1
-    main(nr_of_columns=5, tau=default_tau, delta=default_delta)
+    main(nr_of_columns=10, tau=default_tau, delta=default_delta)
 
     '''
     # Performance measurement runs
@@ -129,7 +146,7 @@ if __name__ == '__main__':
     tau_set = [0.5, 0.8, 0.9, 0.95, 0.99]
     for tau in tau_set:
         main(nr_of_columns=6, nr_of_rows=8e6, tau=tau, delta=None)
-        
+
     delta_set = [1, 2, 3, 5, 10]
     for delta in delta_set:
         main(nr_of_columns=6, nr_of_rows=8e6, tau=None, delta=delta)
