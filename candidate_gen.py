@@ -22,6 +22,7 @@ def main(nr_of_columns, nr_of_rows=None, tau=None, delta=None):
     if tau is not None:
         initial_time = time.time()
         for depth in range(1, 4):
+            depth_time = time.time()
             perms = {}
             # Create permutations for current layer
             for col in columns:
@@ -34,12 +35,8 @@ def main(nr_of_columns, nr_of_rows=None, tau=None, delta=None):
                             set(candidate[0])), map(lambda fd: fd[0], min_fd[key]))):
                         candidates.append(candidate)
 
-            # print('>> checking p values for {} candidates ||'.format(len(candidates)))
-            # start_time = time.time()
-
             next_gen_candidates = list(candidates)
 
-            start_time = time.time()
             # iterative sampling
             for factor in [2, 5, 10, 25]:
                 frac_time = time.time()
@@ -71,15 +68,13 @@ def main(nr_of_columns, nr_of_rows=None, tau=None, delta=None):
                     # 10% 1% ->
                     if p_val >= 1 - ((1 - tau) * (frac)):
                         next_gen_candidates.append((lhs, rhs))
-                if len(next_gen_candidates) == 0: 
+
+                print(">> Columns: {}, Runtime: {}, frac: {}, amount_of_candidates (current): {}"
+                      .format(nr_of_columns, time.time() - frac_time, frac, len(old_candidates)))
+                if len(next_gen_candidates) == 0:
                     break
-                print(">> Columns: {}, Runtime: {}, frac: {}, amount_of_candidates (current): {}".format(nr_of_columns, time.time() - frac_time, frac, len(old_candidates)))
-            p_values_map = soft_fd(
-                next_gen_candidates,
-                columns,
-                input_rdd)  # [((('A'), 'B'), 0.97)]
-            print(">> Runtime fds: {} for columns {} for depth: {}, ".format(time.time() - start_time, nr_of_columns, depth))
-            #print('>> p values map for iter {}: {} ||'.format(depth, p_values_map))
+
+            p_values_map = soft_fd(next_gen_candidates, columns, input_rdd)  # [((('A'), 'B'), 0.97)]
 
             # Build min_fd and min_soft_fd lists
             for (lhs, rhs), p_val in p_values_map:
@@ -90,14 +85,15 @@ def main(nr_of_columns, nr_of_rows=None, tau=None, delta=None):
                            map(lambda fd: fd[0], min_fd[key]))):
                         min_soft_fd[rhs].append((lhs, rhs))
 
+            print(">> Runtime fds: {} for columns {} for depth: {}, ".format(time.time() - depth_time, nr_of_columns, depth))
         print(">> TOTAL Soft FD runtime: {} for columns {}||".format(time.time() - initial_time, nr_of_columns))
         print("Minimal functional dependencies: ", min_fd)
-        print("Minimal soft dependencies: ", min_soft_fd)
+        print("Minimal soft dependencies: ", min_soft_fd, "\n")
 
     if delta is not None:
-        # TODO: Duplicate code between delta and soft candidate generation could be reduced
         initial_time = time.time()
         for depth in range(1, 4):
+            depth_time = time.time()
             perms = {}
             # Create permutations for current layer
             for col in columns:
@@ -125,45 +121,26 @@ def main(nr_of_columns, nr_of_rows=None, tau=None, delta=None):
                 for (lhs, rhs), dist in distance_values_map:
                     if dist <= delta:
                         next_gen_candidates.append((lhs, rhs))
-                if len(next_gen_candidates) == 0: 
-                    break
+
                 print(f"Frac: {frac}, runtime:{time.time() - frac_time},  # amount of current candidates: {len(old_candidates)}, columns: {nr_of_columns}, delta: {delta}")
+                if len(next_gen_candidates) == 0:
+                    break
+
             delta_fd(next_gen_candidates, delta, columns, input_rdd)
             # Build min_fd and min_soft_fd lists
             for (lhs, rhs), dist in distance_values_map:
                 if dist <= delta:
                     min_delta_fd[rhs].append((lhs, rhs))
-            print(">> Depth {}: Delta FD runtime: {}, columns: {} delta: {}".format(depth, time.time() - initial_time, nr_of_columns, delta))
+            print(">> Depth {}: Delta FD runtime: {}, columns: {} delta: {}".format(depth, time.time() - depth_time, nr_of_columns, delta))
         print(">> TOTAL Delta FD runtime: {} delta: {}".format(time.time() - initial_time, delta))
         print("Minimal delta dependencies: ", min_delta_fd)
-        print("==========================END LOOP==============================")
-        print("==========================END LOOP==============================")
-        print("==========================END LOOP==============================")
+        print("==========================END LOOP==============================\n")
 
 
 if __name__ == '__main__':
     default_tau = 0.995
     default_delta = 1
-    for i in [5, 7, 10, 12, 15, 20]:
+    for i in [5, 7, 10, 12, 15]:
         main(nr_of_columns=i, tau=default_tau, delta=default_delta)
     for i in range(1, 5):
         main(nr_of_columns=10, tau=None, delta=i)
-
-    '''
-    # Performance measurement runs
-    nr_of_rows_set = [5e5, 1e6, 2e6, 4e6, 8e6]
-    for rows in nr_of_rows_set:
-        main(nr_of_columns=6, nr_of_rows=rows, tau=default_tau, delta=default_delta)
-
-    nr_of_columns_set = [4, 6, 8, 10, 12, 14]
-    for columns in nr_of_columns_set:
-        main(nr_of_columns=columns, nr_of_rows=1e6, tau=default_tau, delta=default_delta)
-
-    tau_set = [0.5, 0.8, 0.9, 0.95, 0.99]
-    for tau in tau_set:
-        main(nr_of_columns=6, nr_of_rows=8e6, tau=tau, delta=None)
-
-    delta_set = [1, 2, 3, 5, 10]
-    for delta in delta_set:
-        main(nr_of_columns=6, nr_of_rows=8e6, tau=None, delta=delta)
-    '''

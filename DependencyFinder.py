@@ -47,6 +47,8 @@ def map_tuples_to_combined_rdd(row, tuples, header):
 
 
 def soft_fd(candidates, header, input_rdd, sample=None):
+    if len(candidates) == 0:
+        return candidates
     if sample is not None:
         input_rdd = input_rdd.sample(withReplacement=False, fraction=sample, seed=SEED)
 
@@ -79,6 +81,8 @@ def soft_fd(candidates, header, input_rdd, sample=None):
 
 
 def delta_fd(candidates, delta, header, input_rdd, sample=None):
+    if len(candidates) == 0:
+        return candidates
     if sample is not None:
         input_rdd = input_rdd.sample(withReplacement=False, fraction=sample, seed=SEED)
 
@@ -127,23 +131,3 @@ def delta_fd(candidates, delta, header, input_rdd, sample=None):
         .collect()
 
     return [(candidates[int(idx)], int(dist)) for idx, dist in distance_mapping]
-
-# columns = ["county_id", "status_cd", "reason_cd", "last_name", "first_name", "middle_name", "house_num", "half_code",
-#            "street_dir", "street_name", "street_type_cd", "unit_num", "res_city_desc", "state_cd", "zip_code",
-#            "mail_city", "mail_state", "mail_zipcode", "area_cd", "phone_num", "race_code", "ethnic_code", "party_cd",
-#            "sex_code", "age", "birth_place", "precinct_desc", "municipality_desc", "ward_desc", "cong_dist_desc",
-#            "super_court_desc", "judic_dist_desc", "NC_senate_desc", "NC_house_desc", "county_commiss_desc",
-#            "township_desc", "school_dist_desc", "fire_dist_desc", "water_dist_desc", "sewer_dist_desc",
-#            "sanit_dist_desc", "rescue_dist_desc", "munic_dist_desc", "dist_1_desc", "age_group"]
-
-# sample_input = [
-#     (("zip_code", "house_num"), "street_name"),
-#     (("reason_cd"), "status_cd"), (("race_code"), "ethnic_code"),
-#     (("zip_code", "house_num", "unit_num"), "last_name"),
-#     (("first_name"), "sex_code"), (("street_name"), "street_type_cd"),
-#     (("status_cd"), "reason_cd"),
-#     (("zip_code", "house_num", "unit_num"), "last_name"),
-#     (("first_name"), "sex_code"),
-#     (("street_name"), "street_type_cd"),
-#     (("age_group"), "age"), (("age"), "age_group")
-# ]
