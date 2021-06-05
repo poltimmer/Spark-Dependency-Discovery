@@ -1,115 +1,133 @@
 from pyspark.sql import SparkSession
 
-path = "/home/tommie/Downloads/VR_20051125_Post"
-columns = ["county_id", "status_cd", "reason_cd", "last_name", "first_name", "middle_name", "house_num", "half_code",
-           "street_dir", "street_name", "street_type_cd", "unit_num", "res_city_desc", "state_cd", "zip_code",
-           "mail_city", "mail_state", "mail_zipcode", "area_cd", "phone_num", "race_code", "ethnic_code", "party_cd",
-           "sex_code", "age", "birth_place", "precinct_desc", "municipality_desc", "ward_desc", "cong_dist_desc",
-           "super_court_desc", "judic_dist_desc", "NC_senate_desc", "NC_house_desc", "county_commiss_desc",
-           "township_desc", "school_dist_desc", "fire_dist_desc", "water_dist_desc", "sewer_dist_desc",
-           "sanit_dist_desc", "rescue_dist_desc", "munic_dist_desc", "dist_1_desc", "age_group"]
+# Seed used for sampling
+SEED = 420
 
-sample_input = [
-    (("zip_code", "house_num"), "street_name"), 
-    (("reason_cd"), "status_cd"), (("race_code"), "ethnic_code"), 
-    (("zip_code", "house_num", "unit_num"), "last_name"), 
-    (("first_name"), "sex_code"), (("street_name"), "street_type_cd"),
-    (("status_cd"), "reason_cd"),
-    (("zip_code", "house_num", "unit_num"), "last_name"),
-    (("first_name"), "sex_code"),
-    (("street_name"), "street_type_cd"),
-    (("age_group"), "age"), (("age"), "age_group")
-]
 
-def main():
+def setup_header(file_path, nr_of_rows=None):
     spark: SparkSession = SparkSession.builder \
         .master("local[*]") \
         .appName("SparkDB") \
         .getOrCreate()
 
-    rdd = spark.sparkContext.textFile(path)
-    header = rdd.first()
-    rdd = rdd.filter(lambda row: row != header)
+    input_rdd = spark.sparkContext.textFile(file_path)
+    header = input_rdd.first()
+    input_rdd = input_rdd.filter(lambda row: row != header)
 
-    result = []
+    if nr_of_rows is not None:
+        input_rdd = input_rdd.map(lambda x: (x, )).toDF().limit(int(nr_of_rows)).rdd.map(list)
 
-    for tup in sample_input:
-        P, word_count = soft_fd(rdd, tup)
+    return header, input_rdd
 
-        if P == 1:
-            result.append((tup, P, 0))
+
+def map_tuples_to_combined_rdd(row, tuples, header):
+    new_rows = []
+    for i, tup in enumerate(tuples):
+        A = tup[0]
+        B = tup[1]
+        key = str(i) + ";"
+
+        # Get indices for desired columns
+        if isinstance(A, str):
+            idx = [header.index(A)]
         else:
-            D = delta_fd(word_count, tup)
-            result.append((tup, P, D))
+            idx = [header.index(col) for col in A]
 
-    print(result)
-    return result
+        row_split = row.split("\t")
+        for id in idx:
+            key += row_split[id]
+        key = key + ";" + row_split[header.index(B)]
 
+        # new row of format ("tuple;A;B", 1),
+        # for example ("((age_group), age);41 TO 64;62", 1) or ("((age_group,
+        # county_id), age);41 TO 6418;62", 1)
+        new_rows.append((key, 1))
 
-def map_tuple(row, attr):
-    A = attr[0]
-    B = attr[1]
-    key = ""
-
-    # Get indices for desired columns
-    if type(A) is str:
-        idx = [columns.index(A)]
-    else:
-        idx = [columns.index(col) for col in A]
-
-    row_split = row.split("\t")
-    for id in idx:
-        key += row_split[id]
-    key = key + ";" + row_split[columns.index(B)]
-
-    return (key, 1)
+    return new_rows
 
 
-def soft_fd(rdd, tup):
-    """
-    # geen fd
-    ("a_1, b_1") ("a_2, b_2") ("a_2, b_1")
+def soft_fd(candidates, header, input_rdd, sample=None):
+    if len(candidates) == 0:
+        return candidates
+    if sample is not None:
+        input_rdd = input_rdd.sample(withReplacement=False, fraction=sample, seed=SEED)
 
-    ("a_1;b_1", 1) ("a_2; b_2", 1) ("a_1;b_2", 1)
-    ("a_1", 2), ("a_2", 1)  # (a_i, N)
-    ("a_i" m/N) : ("a_1", 1/2), ("a_2", 1/1) --> 0.95
+    # compute the number of occurrences of unique a, b combinations per input tuple
+    a_b_combi_counts = input_rdd.flatMap(lambda row: map_tuples_to_combined_rdd(row, candidates, header)) \
+        .reduceByKey(lambda a, b: a + b)
 
-    m = 1 # maximum van a,b combinatie counts
+    # remove ;A;B from the key, so only the input tuple remains and retrieving
+    # the maximum count per tuple
+    N_count_per_A = a_b_combi_counts \
+        .map(lambda pair: (pair[0].split(";")[0] + ";" + pair[0].split(";")[1], pair[1])) \
+        .reduceByKey(lambda N_1, N_2: N_1 + N_2) \
+        .map(lambda pair: (pair[0].split(";")[0], pair[1]))  # Remove A from the key, such that join can be performed
 
-    # wel fd
-    ("a_1, b_1") ("a_2, b_2") ("a_2, b_2")
+    max_m_per_candidate = a_b_combi_counts \
+        .map(lambda pair: (pair[0].split(";")[0], pair[1])) \
+        .reduceByKey(lambda m_1, m_2: m_1 if m_1 > m_2 else m_2)
 
-    ("a_1;b_1", 1) ("a_2; b_2", 2)
-    ("a_1", 1), ("a_2", 2)  # (a_i, N)
-    ("a_i" m/N) : ("a_1", 2/1), ("a_2", 2/2) --> 1/1
+    joined_m_N = max_m_per_candidate.join(N_count_per_A)
 
-    m = 2 # maximum van a,b combinatie counts
-    """
+    # compute the fraction (P) per A per input tuple
+    fraction_per_a = joined_m_N.map(lambda row: (int(row[0]), row[1][0] / row[1][1]))
 
-    a_b_combi_counts = rdd.map(lambda row: map_tuple(row, tup)) \
-                    .reduceByKey(lambda a, b: a + b).cache()
-
-    maximum_of_a_b_combination_counts: int = a_b_combi_counts.reduce(lambda row1, row2: row1 if row1[1] > row2[1] else row2)[1]
-
-    unique_a_counts = a_b_combi_counts.map(
-        lambda a_b_combi_count: (a_b_combi_count[0].split(";")[0], a_b_combi_count[1])
-    ).reduceByKey(
-        lambda count_a_i_row1, count_a_i_row2: count_a_i_row1 + count_a_i_row2
+    # Reduce tuple id to obtain the minimum P per tuple.
+    P_min = fraction_per_a.reduceByKey(
+        lambda a_i_fraction, a_j_fraction: a_i_fraction if a_i_fraction < a_j_fraction else a_j_fraction
     )
 
-    fraction_per_a = unique_a_counts.map(lambda a_i_count: (a_i_count[0], maximum_of_a_b_combination_counts / a_i_count[1]))
-
-    P_min: float = fraction_per_a.reduce(lambda a_i_fraction, a_j_fraction: a_i_fraction if a_i_fraction[1] < a_j_fraction[1] else a_j_fraction)[1]
-
-    return P_min, a_b_combi_counts
+    return [(candidates[idx], p) for idx, p in P_min.collect()]
 
 
-def delta_fd(rdd, tup):
-    pass
-    # inner_join = rdd.join(rdd)  #.map(lambda row: (row[0], row[1]))
-    # max_distance = inner_join.map(lambda row[])  #edit_distance.SequenceMatcher(a="test", b="tesd").distance()
-    # return None
+def delta_fd(candidates, delta, header, input_rdd, sample=None):
+    if len(candidates) == 0:
+        return candidates
+    if sample is not None:
+        input_rdd = input_rdd.sample(withReplacement=False, fraction=sample, seed=SEED)
 
+    # same step as the first step from fd's:
+    # compute the number of occurrences of unique a, b combinations per input tuple
+    a_b_combi_counts = input_rdd.flatMap(lambda row: map_tuples_to_combined_rdd(row, candidates, header)) \
+        .reduceByKey(lambda a, b: a + b)
 
-if __name__ == '__main__':
-    main()
+    # Here, we go from   ("((age_group), age);41 TO 64;62", //count (e.g.
+    # 1)//),  to "("((age_group), age);41 TO 64","62"), enabling 'step 2A' in
+    # report
+    a_r_pairs = a_b_combi_counts \
+        .map(lambda pair: (pair[0].split(";")[0] + ";" + pair[0].split(";")[1], pair[0].split(";")[2]))  # remove the count leaving only unique values
+    # output : "("((age_group), age);41 TO 64", "69")
+
+    # computing (S_A, (a_k, a_k)), example ('1;7', ('17 AND BELOW', '17 AND BELOW'))
+    inner_join = a_r_pairs.join(a_r_pairs)
+
+    # https://stackoverflow.com/questions/59686989/levenshtein-distance-with-bound-limit
+    def levenshtein(s1, s2, maximum):
+        if len(s1) > len(s2):
+            s1, s2 = s2, s1
+
+        distances = range(len(s1) + 1)
+        for i2, c2 in enumerate(s2):
+            distances_ = [i2 + 1]
+            for i1, c1 in enumerate(s1):
+                if c1 == c2:
+                    distances_.append(distances[i1])
+                else:
+                    distances_.append(1 + min((distances[i1], distances[i1 + 1], distances_[-1])))
+            if all((x >= maximum for x in distances_)):
+                return maximum  # False #TODO Define properly
+            distances = distances_
+        return distances[-1]
+
+    def findDist(row, delta):
+        # reduce key to only contain candidate id ((age_group), age);41 TO 64; -> ((age_group), age)
+        key = row[0].split(';')[0]
+        compare_left, compare_right = row[1]
+        dist = levenshtein(compare_left, compare_right, delta + 1)
+        return (key, dist)
+
+    distance_mapping = inner_join.map(lambda row: findDist(row, delta)) \
+        .reduceByKey(lambda row1_dist, row2_dist: row1_dist if row1_dist > row2_dist else row2_dist) \
+        .collect()
+
+    return [(candidates[int(idx)], int(dist)) for idx, dist in distance_mapping]
