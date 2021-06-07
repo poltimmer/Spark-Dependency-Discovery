@@ -83,10 +83,8 @@ def main(nr_of_columns, nr_of_rows=None, hard=False, tau=None, delta=None):
 
             # Build min_fd and min_soft_fd lists
             for (lhs, rhs), p_val in p_values_map:
-                if p_val >= tau:  # case 2: soft functional dependency
-                    if all(map(lambda x: not set(x).issubset(set(lhs)),
-                               map(lambda fd: fd[0], min_fd[key]))):
-                        min_soft_fd[rhs].append((lhs, rhs))
+                if p_val >= tau and p_val < 1:  # soft functional dependency
+                    min_soft_fd[rhs].append((lhs, rhs))
 
             print(">> Runtime fds: {} for columns {} for depth: {}, ".format(time.time() - depth_time, nr_of_columns,
                                                                              depth))
