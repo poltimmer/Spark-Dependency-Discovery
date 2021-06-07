@@ -76,10 +76,7 @@ def main(nr_of_columns, nr_of_rows=None, hard=False, tau=None, delta=None):
             candidates = []
             for key, partition in perms.items():
                 for candidate in partition:
-                    if all(map(lambda x: not set(x).issubset(set(candidate[0])),
-                               map(lambda fd: fd[0], min_fd[key]))) and \
-                            all(map(lambda x: not set(x).issubset(set(candidate[0])),
-                                    map(lambda fd: fd[0], min_soft_fd[key]))):
+                    if all(map(lambda x: not set(x).issubset(set(candidate[0])), map(lambda fd: fd[0], min_fd[key] + min_soft_fd[key]))):
                         candidates.append(candidate)
 
             p_values_map = soft_fd(candidates, columns, input_rdd)  # [((('A'), 'B'), 0.97)]
@@ -108,9 +105,7 @@ def main(nr_of_columns, nr_of_rows=None, hard=False, tau=None, delta=None):
             candidates = []
             for key, partition in perms.items():
                 for candidate in partition:
-                    if all(map(lambda x: not set(x).issubset(set(candidate[0])), map(lambda fd: fd[0], min_fd[key]))) \
-                            and all(map(lambda x: not set(x).issubset(set(candidate[0])),
-                                        map(lambda d_fd: d_fd[0], min_delta_fd[key]))):
+                    if all(map(lambda x: not set(x).issubset(set(candidate[0])), map(lambda fd: fd[0], min_fd[key] + min_delta_fd[key]))):
                         candidates.append(candidate)
 
             next_gen_candidates = list(candidates)
