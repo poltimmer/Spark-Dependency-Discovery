@@ -1,5 +1,5 @@
-# 2AMD15
-Project for Big Data Management
+# Spark Dependency Discovery
+Project for 2AMD15 Big Data Management
 
 
 Dataset: https://s3.amazonaws.com/dl.ncsbe.gov/data/Snapshots/VR_Snapshot_20051125.zip
