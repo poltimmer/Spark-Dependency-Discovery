@@ -1,5 +1,5 @@
 # Spark Dependency Discovery
-Project for 2AMD15 Big Data Management
+Functional depencency discovery of big data using spark. Uses a priori-type algorithm to efficiently discover which depencencies to investigate on a lattice, combined with iterative sampling. This is a project for the TU/e course 2AMD15 Big Data Management.
 
 
 Dataset: https://s3.amazonaws.com/dl.ncsbe.gov/data/Snapshots/VR_Snapshot_20051125.zip
